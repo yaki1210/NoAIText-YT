@@ -112,29 +112,47 @@ export function pickTrack(tracks, opts = {}) {
   return tracks[0];
 }
 
+// URL 构造：删除 baseUrl 原有的 fmt 参数再设置新 fmt，避免
+// `fmt=srv3&fmt=json3` 多值冲突导致 YouTube timedtext 返回空 body。
+export function buildSubtitleUrl(baseUrl, fmt, tlang) {
+  const u = new URL(baseUrl);
+  u.searchParams.delete("fmt");   // 关键：去掉原有 fmt，避免双值冲突
+  if (fmt) u.searchParams.set("fmt", fmt);
+  if (tlang) u.searchParams.set("tlang", tlang);
+  return u.toString();
+}
+
 // ── 字幕内容 ────────────────────────────────────────────
-// baseUrl 追加 fmt=json3 → events[]{tStartMs, dDurationMs, segs[]}
+// 三级回退：强制 fmt=json3 → 强制 fmt=vtt → 保留 baseUrl 原样（应对签名-fmt 绑定）。
 // 防御点：YouTube 在某些场景返回空 body / consent 重定向 HTML / 默认 srv3 XML，
 // 直接 res.json() 会抛 "Unexpected end of JSON input"。故先 text() 判别，
-// 失败时回退 fmt=vtt（WebVTT，普遍可解析）。
+// 非 JSON/非 VTT 自动回退。
 export async function fetchSubtitleContent(baseUrl, opts = {}) {
   if (!baseUrl || !/^https?:\/\//i.test(baseUrl)) {
     throw new Error("字幕轨缺少可用 baseUrl");
   }
-  const sep = baseUrl.includes("?") ? "&" : "?";
-  const tlangPart = opts.tlang ? `&tlang=${encodeURIComponent(opts.tlang)}` : "";
+  const tlang = opts.tlang || "";
 
-  // 1) 优先 json3
-  let segs = await tryJson3(`${baseUrl}${sep}fmt=json3${tlangPart}`);
+  // 1) 强制 fmt=json3（删除 baseUrl 原 fmt，避免冲突）
+  let segs = await tryJson3(buildSubtitleUrl(baseUrl, "json3", tlang));
   if (segs) return segs;
 
-  // 2) 回退 vtt（WebVTT，多数视频可用）
-  segs = await tryVtt(`${baseUrl}${sep}fmt=vtt${tlangPart}`);
+  // 2) 强制 fmt=vtt
+  segs = await tryVtt(buildSubtitleUrl(baseUrl, "vtt", tlang));
   if (segs) return segs;
 
-  // 3) 都失败，给出真实 HTTP 与首字符诊断，便于定位
-  const diag = await diagnosticFetch(`${baseUrl}${sep}fmt=json3${tlangPart}`);
-  throw new Error(`字幕下载失败：HTTP ${diag.status}，内容前缀=${diag.prefix}`);
+  // 3) 保留 baseUrl 原样（不动 fmt，仅追加 tlang），应对签名与 fmt 绑定的极端情况
+  {
+    const u = new URL(baseUrl);
+    if (tlang) u.searchParams.set("tlang", tlang);
+    const raw = u.toString();
+    segs = await tryJson3(raw) || await tryVtt(raw);
+    if (segs) return segs;
+  }
+
+  // 4) 都失败，给出真实 HTTP 与首字符诊断，便于定位
+  const diag = await diagnosticFetch(buildSubtitleUrl(baseUrl, "json3", tlang));
+  throw new Error(`字幕下载失败：HTTP ${diag.status}，内容前缀=${diag.prefix}（ baseUrl 可能已过期或 ASR 尚未生成）`);
 }
 
 async function tryJson3(url) {

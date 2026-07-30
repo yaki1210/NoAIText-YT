@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseVttText, _parseVttTime, _extractPlayerResponse } from "../src/api/youtube.js";
+import { parseVttText, _parseVttTime, _extractPlayerResponse, buildSubtitleUrl } from "../src/api/youtube.js";
 
 test("parseVttText：解析标准 WebVTT 块", () => {
   const vtt = `WEBVTT
@@ -69,4 +69,32 @@ test("_extractPlayerResponse：缺失/坏 JSON 返回 null 而非抛错", () => 
   // 截断的 JSON 不应抛
   const html = `x ytInitialPlayerResponse = {"a":{"b":`;
   assert.equal(_extractPlayerResponse(html), null);
+});
+
+test("buildSubtitleUrl：删除 baseUrl 原有 fmt 再设置，避免多值冲突", () => {
+  // baseUrl 自带 fmt=srv3（YouTube 常见情况），追加 fmt=json3 应替换而非并存
+  const base = "https://www.youtube.com/api/timedtext?v=ABC&lang=en&fmt=srv3&kind=asr";
+  const out = buildSubtitleUrl(base, "json3");
+  const u = new URL(out);
+  const fmts = u.searchParams.getAll("fmt");
+  assert.equal(fmts.length, 1, "fmt 参数应唯一，不允许多值冲突");
+  assert.equal(fmts[0], "json3");
+  // 其它参数应保留
+  assert.equal(u.searchParams.get("v"), "ABC");
+  assert.equal(u.searchParams.get("lang"), "en");
+  assert.equal(u.searchParams.get("kind"), "asr");
+});
+
+test("buildSubtitleUrl：tlang 正确追加", () => {
+  const base = "https://www.youtube.com/api/timedtext?v=ABC&lang=en";
+  const out = buildSubtitleUrl(base, "vtt", "zh-Hans");
+  const u = new URL(out);
+  assert.equal(u.searchParams.get("fmt"), "vtt");
+  assert.equal(u.searchParams.get("tlang"), "zh-Hans");
+});
+
+test("buildSubtitleUrl：无 fmt 参数时正常追加", () => {
+  const base = "https://www.youtube.com/api/timedtext?v=ABC";
+  const out = buildSubtitleUrl(base, "json3");
+  assert.ok(out.includes("fmt=json3"));
 });
