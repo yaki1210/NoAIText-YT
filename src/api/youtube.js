@@ -114,15 +114,40 @@ export function pickTrack(tracks, opts = {}) {
 
 // ── 字幕内容 ────────────────────────────────────────────
 // baseUrl 追加 fmt=json3 → events[]{tStartMs, dDurationMs, segs[]}
+// 防御点：YouTube 在某些场景返回空 body / consent 重定向 HTML / 默认 srv3 XML，
+// 直接 res.json() 会抛 "Unexpected end of JSON input"。故先 text() 判别，
+// 失败时回退 fmt=vtt（WebVTT，普遍可解析）。
 export async function fetchSubtitleContent(baseUrl, opts = {}) {
   if (!baseUrl || !/^https?:\/\//i.test(baseUrl)) {
     throw new Error("字幕轨缺少可用 baseUrl");
   }
-  let u = baseUrl + (baseUrl.includes("?") ? "&" : "?") + "fmt=json3";
-  if (opts.tlang) u += `&tlang=${encodeURIComponent(opts.tlang)}`;
-  const res = await fetch(u, { credentials: "include" });
-  if (!res.ok) throw new Error(`字幕下载失败 HTTP ${res.status}`);
-  const j = await res.json();
+  const sep = baseUrl.includes("?") ? "&" : "?";
+  const tlangPart = opts.tlang ? `&tlang=${encodeURIComponent(opts.tlang)}` : "";
+
+  // 1) 优先 json3
+  let segs = await tryJson3(`${baseUrl}${sep}fmt=json3${tlangPart}`);
+  if (segs) return segs;
+
+  // 2) 回退 vtt（WebVTT，多数视频可用）
+  segs = await tryVtt(`${baseUrl}${sep}fmt=vtt${tlangPart}`);
+  if (segs) return segs;
+
+  // 3) 都失败，给出真实 HTTP 与首字符诊断，便于定位
+  const diag = await diagnosticFetch(`${baseUrl}${sep}fmt=json3${tlangPart}`);
+  throw new Error(`字幕下载失败：HTTP ${diag.status}，内容前缀=${diag.prefix}`);
+}
+
+async function tryJson3(url) {
+  const res = await fetch(url, { credentials: "include" });
+  if (!res.ok) return null;
+  const text = await res.text();
+  if (!text) return null;                                   // 空 body
+  // consent 重定向或 HTML 错误页 → 不是 JSON
+  const head = text.slice(0, 200).trim();
+  if (!head.startsWith("{") && !head.startsWith("[")) return null;
+  let j;
+  try { j = JSON.parse(text); }
+  catch { return null; }
   const events = Array.isArray(j.events) ? j.events : [];
   const segs = [];
   for (const ev of events) {
@@ -136,4 +161,68 @@ export async function fetchSubtitleContent(baseUrl, opts = {}) {
   return segs;
 }
 
-export { extractPlayerResponse as _extractPlayerResponse };
+// WebVTT 解析：跳过 WEBVTT 头/NOTE，识别 cuetime --> cuetime 行后聚合文本块。
+async function tryVtt(url) {
+  const res = await fetch(url, { credentials: "include" });
+  if (!res.ok) return null;
+  const text = await res.text();
+  return parseVttText(text);
+}
+
+// 纯函数：解析 WebVTT 文本为 segments[]。空/非 VTT 返回 null（便于单测）。
+export function parseVttText(text) {
+  if (!text) return null;
+  const head = text.slice(0, 200).trim();
+  if (!/^WEBVTT/i.test(head) && !head.includes("-->")) return null;
+
+  const segs = [];
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  let i = 0;
+  // 跳过头部（直到第一个空行）
+  while (i < lines.length && lines[i].trim() !== "") i++;
+  i++;
+  while (i < lines.length) {
+    const line = lines[i];
+    const m = line.match(/^(\d{2}:\d{2}:\d{2}[.,]\d{3}|\d{2}:\d{2}[.,]\d{3}|\d{1,2}:\d{2}[.,]\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2}[.,]\d{3}|\d{2}:\d{2}[.,]\d{3}|\d{1,2}:\d{2}[.,]\d{3})/);
+    if (m) {
+      const from = parseVttTime(m[1]);
+      const to = parseVttTime(m[2]);
+      i++;
+      const buf = [];
+      while (i < lines.length && lines[i].trim() !== "") {
+        // 去掉 VTT 内联标签如 <c.colorE5E5E5>
+        buf.push(lines[i].replace(/<[^>]+>/g, ""));
+        i++;
+      }
+      const content = buf.join(" ").trim();
+      if (content || from != null) segs.push({ content, from, to });
+    } else {
+      i++;
+    }
+  }
+  return segs.length ? segs : null;
+}
+
+function parseVttTime(s) {
+  // 形如 00:01:02.345 / 01:02.345 / 1:02.345 → 秒
+  const parts = s.split(/[;.,]/);
+  const main = parts[0].split(":");
+  let sec = 0;
+  if (main.length === 3) sec = (+main[0]) * 3600 + (+main[1]) * 60 + (+main[2]);
+  else if (main.length === 2) sec = (+main[0]) * 60 + (+main[1]);
+  if (parts[1]) sec += Number("0." + parts[1].padEnd(3, "0").slice(0, 3));
+  return isFinite(sec) ? sec : null;
+}
+
+async function diagnosticFetch(url) {
+  try {
+    const res = await fetch(url, { credentials: "include" });
+    const text = await res.text();
+    const prefix = (text.slice(0, 60) || "<empty>").replace(/\s+/g, " ");
+    return { status: res.status, prefix };
+  } catch (e) {
+    return { status: 0, prefix: String(e?.message || e).slice(0, 60) };
+  }
+}
+
+export { extractPlayerResponse as _extractPlayerResponse, parseVttTime as _parseVttTime };
