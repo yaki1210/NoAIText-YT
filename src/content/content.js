@@ -1,7 +1,8 @@
 // content 主逻辑：页面解析、SPA 监听、与 background 通信、面板编排。
-// 字幕获取走 page-bridge（page-world 注入）路径，绕开 timedtext baseUrl 的
-// is_servable:false 限制；page-bridge 通过 movie_player 激活目标轨后读
-// video.textTracks 的 cues 返回给本 script。
+// 字幕获取主路径：background 走 watch HTML + baseUrl&fmt=json3（失败时
+// background 自己用 InnerTube /youtubei/v1/player 重取新鲜 baseUrl 再试）。
+// 兜底路径：page-bridge 注入 page-world，通过 movie_player 激活目标轨后
+// 读 video.textTracks 的 cues，专治 is_servable:false 的 ASR 轨。
 import { Panel } from "./panel.js";
 
 let panel = null;
@@ -68,10 +69,12 @@ function injectBridge() {
 function requestBridgeCaptions(lan) {
   return new Promise((resolve, reject) => {
     const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    // 新流程含拦截器安装 + toggleSubtitles 触发 + 6s capture + 可能的 fmt=json3 重取，
+    // 超时放到 20s 留足余量
     const timer = setTimeout(() => {
       window.removeEventListener("message", onMsg);
       reject(new Error("page-bridge 超时未响应（页面可能未就绪，刷新试试）"));
-    }, 12000);
+    }, 20000);
 
     function onMsg(ev) {
       if (ev.source !== window) return;
@@ -124,24 +127,28 @@ async function requestAnalyze(forceNow = false, force = false) {
 
   const myToken = ++runToken;
   try {
-    injectBridge();
-    // 给 page-bridge 一点 ready 时间；首次注入可能慢
-    if (!bridgeReady) await new Promise(r => setTimeout(r, 200));
-
-    const captured = await requestBridgeCaptions(currentLan);
+    // 主路径：background 走 watch HTML + baseUrl&fmt=json3（失败时 background
+    // 自己用 InnerTube 重取新鲜 baseUrl 再试）。这条路径不依赖 movie_player /
+    // textTracks，绝大多数视频能直接命中。
+    let res = await chrome.runtime.sendMessage({
+      type: "analyze",
+      videoId: ctx.videoId,
+      lan: currentLan || "",
+      autoTranslate: autoTranslate,
+      force
+    });
     if (myToken !== runToken) return;
     if (!contextAlive()) return;
 
-    // 把 page-bridge 取到的 segments 直接交给 background 分析（不经过 timedtext）
-    const res = await chrome.runtime.sendMessage({
-      type: "analyzeCaptured",
-      videoId: ctx.videoId,
-      segments: captured.segments,
-      chosenLang: captured.chosenLang,
-      audioLang: captured.audioLang,
-      tracks: captured.tracks
-    });
-    if (myToken !== runToken) return;
+    // 主路径失败（无字幕轨 / baseUrl 空 body / InnerTube 也救不回）→
+    // 退到 page-bridge 走 textTracks，专治 is_servable:false 的 ASR 轨。
+    if (res?.status !== "ok") {
+      const fallbackReason = res?.status || "primary-failed";
+      res = await tryBridgeFallback(ctx, myToken, fallbackReason);
+      if (myToken !== runToken) return;
+      if (!contextAlive()) return;
+    }
+
     if (!panel || !contextAlive()) return;
     if (res?.status === "ok") panel.setResult(res);
     else if (res?.status === "no-subtitle") { await panel.clear(); panel = null; }
@@ -156,6 +163,32 @@ async function requestAnalyze(forceNow = false, force = false) {
       return;
     }
     if (panel) panel.setError(msg);
+  }
+}
+
+// page-bridge 兜底：注入 page-world 脚本，请求 textTracks cues，送 analyzeCaptured。
+// 仅在主路径（baseUrl）返回 no-subtitle / error 时调用。
+async function tryBridgeFallback(ctx, myToken, reason) {
+  try {
+    injectBridge();
+    if (!bridgeReady) await new Promise(r => setTimeout(r, 200));
+
+    const captured = await requestBridgeCaptions(currentLan);
+    if (myToken !== runToken) return { status: "error", message: "superseded" };
+    if (!contextAlive()) return { status: "error", message: "context-invalid" };
+
+    return await chrome.runtime.sendMessage({
+      type: "analyzeCaptured",
+      videoId: ctx.videoId,
+      segments: captured.segments,
+      chosenLang: captured.chosenLang,
+      audioLang: captured.audioLang,
+      tracks: captured.tracks,
+      force: true
+    });
+  } catch (e) {
+    // 兜底也失败：返回结构化错误，主流程统一展示
+    return { status: "error", message: `主路径(${reason})与 textTracks 兜底均失败：${String(e?.message || e)}` };
   }
 }
 
@@ -178,7 +211,7 @@ function watchNavigation() {
 
 function init() {
   if (!contextAlive()) return;
-  injectBridge();
+  // 不再 eager 注入 page-bridge：主路径走 baseUrl，仅在兜底时按需注入
   watchNavigation();
   requestAnalyze(true);
 }

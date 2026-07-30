@@ -3,7 +3,7 @@
 //   - 移除 wbi/player_v2，只用 watch 页内嵌 JSON + baseUrl&fmt=json3
 //   - 缓存键改为 videoId
 //   - 解析媒体轨语言归一到 zh/en 传给 detector；其余语言由 detector detectLang 兜底
-import { fetchVideoInfo, fetchSubtitleContent, pickTrack } from "./api/youtube.js";
+import { fetchVideoInfo, fetchSubtitleContent, pickTrack, refreshTracksInnerTube } from "./api/youtube.js";
 import { analyze } from "./core/detector.js";
 import { getMergedRules, getSettings } from "./core/storage.js";
 
@@ -56,7 +56,18 @@ async function handleAnalyze({ videoId, lan, autoTranslate, force }) {
   const subKey = track.baseUrl + (useMode ? "|zh" : "");
   let segments = !force ? subCache.get(subKey) : null;
   if (!segments) {
-    segments = await fetchSubtitleContent(track.baseUrl, useMode ? { tlang: "zh-Hans" } : {});
+    try {
+      segments = await fetchSubtitleContent(track.baseUrl, useMode ? { tlang: "zh-Hans" } : {});
+    } catch (e) {
+      // baseUrl 可能过期或被 pot 风控返回空 body → InnerTube 重取新鲜签名再试一次
+      const fresh = await refreshTracksInnerTube(videoId).catch(() => null);
+      const freshTrack = fresh && pickTrack(fresh, { lang: lan, audioLang: info.audioLang });
+      if (!freshTrack || !freshTrack.baseUrl) throw e;
+      segments = await fetchSubtitleContent(freshTrack.baseUrl, useMode ? { tlang: "zh-Hans" } : {});
+      // 重试成功：用 fresh baseUrl 替换 info.tracks 中对应轨的 baseUrl，避免下次再踩
+      const old = info.tracks.find(t => t.languageCode === freshTrack.languageCode && t.kind === freshTrack.kind);
+      if (old) old.baseUrl = freshTrack.baseUrl;
+    }
     subCache.set(subKey, segments);
   }
   if (!segments.length)

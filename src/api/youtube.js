@@ -9,8 +9,22 @@
 //   - baseUrl 必须校验非空再 fetch，避免 background SW 中 fetch("") 误取自身
 //   - 翻译轨道 (auto-translation) 通过 baseUrl&fmt=json3&tlang=zh 取，准确性差，
 //     由调用方按 settings.autoTranslate 决定是否取
+//   - baseUrl 含 exp/signature，过期或被 pot 风控时 timedtext 返回 200 空 body；
+//     此时调 InnerTube /youtubei/v1/player 取新鲜签名的 baseUrl 再试一次
 
 const WATCH_URL = "https://www.youtube.com/watch?v=";
+const INNERTUBE_PLAYER_URL = "https://www.youtube.com/youtubei/v1/player";
+// WEB 客户端上下文。clientVersion 用一个近期稳定版本；YouTube 对客户端版本
+// 校验较松，过旧会被拒。host_permissions 已覆盖 youtube.com，credentials:"include"
+// 会让 SW fetch 携带用户会话 cookie。
+const INNERTUBE_CONTEXT = {
+  client: {
+    clientName: "WEB",
+    clientVersion: "2.20240726.00.00",
+    hl: "zh-CN",
+    gl: "CN"
+  }
+};
 
 // ── HTML 抓取 ──────────────────────────────────────────
 async function fetchWatchHTML(videoId) {
@@ -20,6 +34,39 @@ async function fetchWatchHTML(videoId) {
   });
   if (!res.ok) throw new Error(`抓取 watch 页失败 HTTP ${res.status}`);
   return res.text();
+}
+
+// InnerTube /youtubei/v1/player：POST 拿到带新鲜 signature/pot/exp 的 player
+// 响应。用于 watch HTML 内嵌 baseUrl 过期或返回空 body 时重取 baseUrl。
+//
+// 与 watch HTML 路径相比：返回的 captionTracks.baseUrl 是即时签发的，未过 exp；
+// 但 is_servable 标志仍由服务端决定——对 is_servable:false 轨，本接口返回的
+// baseUrl 仍可能空 body，那种情况只能靠 page-bridge 走 textTracks。
+async function fetchPlayerResponseInnerTube(videoId) {
+  const body = {
+    context: INNERTUBE_CONTEXT,
+    videoId,
+    playbackContext: {
+      contentPlaybackContext: {
+        html5Preference: "HTML5_PREF_WANTS",
+        signatureTimestamp: 0
+      }
+    }
+  };
+  const res = await fetch(INNERTUBE_PLAYER_URL, {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      "Content-Type": "application/json",
+      "X-YouTube-Client-Name": "1",      // 1 = WEB
+      "X-YouTube-Client-Version": INNERTUBE_CONTEXT.client.clientVersion
+    },
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) throw new Error(`InnerTube player HTTP ${res.status}`);
+  const j = await res.json();
+  if (!j || !j.captions) throw new Error(`InnerTube 响应缺 captions 字段`);
+  return j;
 }
 
 // 从 HTML 抠出 ytInitialPlayerResponse。括号平衡 + 字符串跳过，避免正则误截。
@@ -46,11 +93,32 @@ function extractPlayerResponse(html) {
 }
 
 // ── 元信息与字幕轨 ──────────────────────────────────────
+// 两级取轨：先 watch HTML（便宜，命中缓存概率高），失败/无轨再 InnerTube。
+// 返回的 info 带 videoId，便于 fetchSubtitleContent 失败时按 videoId 重取。
 export async function fetchVideoInfo(videoId) {
-  const html = await fetchWatchHTML(videoId);
-  const player = extractPlayerResponse(html);
-  if (!player) throw new Error("未在 watch 页找到 ytInitialPlayerResponse（可能是 consent 重定向或风控）");
-  const tracks = extractTracks(player);
+  let player = null;
+  let htmlErr = null;
+  try {
+    const html = await fetchWatchHTML(videoId);
+    player = extractPlayerResponse(html);
+  } catch (e) { htmlErr = e; }
+
+  if (!player) {
+    // HTML 抓取失败或没抠到 → 走 InnerTube
+    player = await fetchPlayerResponseInnerTube(videoId).catch(() => null);
+    if (!player) {
+      throw htmlErr || new Error("未在 watch 页找到 ytInitialPlayerResponse（可能是 consent 重定向或风控）");
+    }
+  }
+
+  let tracks = extractTracks(player);
+  // HTML 路径取到 player 但 tracks 为空（少见，可能是 consent 页带 player 但无字幕段）
+  // 也试一次 InnerTube，避免误报"无字幕"
+  if (!tracks.length) {
+    const itp = await fetchPlayerResponseInnerTube(videoId).catch(() => null);
+    if (itp) tracks = extractTracks(itp);
+  }
+
   return {
     videoId,
     title: player?.videoDetails?.title || "(未知)",
@@ -59,6 +127,14 @@ export async function fetchVideoInfo(videoId) {
     tracks,
     isLive: player?.videoDetails?.isLive || player?.videoDetails?.isLiveContent || false
   };
+}
+
+// 用 InnerTube 重新签发某 videoId 的所有 captionTracks baseUrl。
+// 仅在 fetchSubtitleContent 三级 fmt 全失败时调用。
+// 返回的 tracklist 仅供 fetchSubtitleContent 重试，不缓存到 infoCache。
+export async function refreshTracksInnerTube(videoId) {
+  const itp = await fetchPlayerResponseInnerTube(videoId);
+  return extractTracks(itp);
 }
 
 function extractTracks(player) {
@@ -243,4 +319,4 @@ async function diagnosticFetch(url) {
   }
 }
 
-export { extractPlayerResponse as _extractPlayerResponse, parseVttTime as _parseVttTime };
+export { extractPlayerResponse as _extractPlayerResponse, parseVttTime as _parseVttTime, fetchPlayerResponseInnerTube as _fetchPlayerResponseInnerTube };
