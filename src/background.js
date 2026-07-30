@@ -91,9 +91,49 @@ async function handleAnalyze({ videoId, lan, autoTranslate, force }) {
   return payload;
 }
 
+// content 通过 page-bridge 取到字幕后直接送给 detector；不经过 timedtext，
+// 专绕 is_servable:false 轨。lan/audioLang 用于归一语言并选轨（仅做 UI 展示）。
+async function handleAnalyzeCaptured({ videoId, segments, chosenLang, audioLang, tracks, force }) {
+  if (!segments || !segments.length) return { status: "no-subtitle", title: "(未知)", reason: "字幕为空" };
+  const rules = await getMergedRules();
+  const settings = await getSettings();
+  const merged = { ...settings };
+  const resolvedLang = codec2lang(chosenLang) || codec2lang(audioLang) || undefined;
+  merged.lang = resolvedLang;
+  const hash = hashRules(rules, merged);
+  const rkey = `cap:${videoId}:${chosenLang || "-"}:${hash}`;
+  const cached = !force ? resultCache.get(rkey) : null;
+  if (cached) return { ...cached, cached: true };
+
+  const result = analyze(segments, rules, merged);
+  const payload = {
+    status: "ok",
+    title: "(未知)",
+    videoId,
+    lan: chosenLang,
+    audioLang,
+    isAsr: (tracks || []).find(t => t.languageCode === chosenLang)?.isAsr || false,
+    useMode: false,
+    tracks: (tracks || []).slice(0, 12).map(t => ({
+      languageCode: t.languageCode,
+      name: t.name,
+      isAsr: t.isAsr
+    })),
+    ...result
+  };
+  resultCache.set(rkey, payload);
+  return payload;
+}
+
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg && msg.type === "analyze") {
     handleAnalyze(msg)
+      .then(r => sendResponse(r))
+      .catch(e => sendResponse({ status: "error", message: String(e && e.message ? e.message : e) }));
+    return true;
+  }
+  if (msg && msg.type === "analyzeCaptured") {
+    handleAnalyzeCaptured(msg)
       .then(r => sendResponse(r))
       .catch(e => sendResponse({ status: "error", message: String(e && e.message ? e.message : e) }));
     return true;

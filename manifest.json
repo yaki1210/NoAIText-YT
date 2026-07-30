@@ -30,7 +30,8 @@
         "src/core/storage.js",
         "src/content/content.js",
         "src/content/panel.js",
-        "src/content/panel.css"
+        "src/content/panel.css",
+        "src/content/page-bridge.js"
       ],
       "matches": ["*://*.youtube.com/*"]
     }
