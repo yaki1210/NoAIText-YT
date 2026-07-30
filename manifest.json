@@ -1,0 +1,47 @@
+{
+  "manifest_version": 3,
+  "name": "NoAIText-YT - YouTube AI文案检测",
+  "version": "0.1.0",
+  "description": "提取YouTube视频字幕（中/英），扫描其中AI常用句式与文本特征，给出视频文案由AI生成的概率得分。支持按字幕轨语言分别检测。",
+  "permissions": ["storage", "tabs"],
+  "host_permissions": [
+    "*://*.youtube.com/*",
+    "*://*.googlevideo.com/*"
+  ],
+  "background": {
+    "service_worker": "src/background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://www.youtube.com/watch*", "*://youtube.com/watch*"],
+      "js": ["src/content/bootstrap.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "src/core/rules.js",
+        "src/core/rules-zh.js",
+        "src/core/rules-en.js",
+        "src/core/detector.js",
+        "src/core/storage.js",
+        "src/content/content.js",
+        "src/content/panel.js",
+        "src/content/panel.css"
+      ],
+      "matches": ["*://*.youtube.com/*"]
+    }
+  ],
+  "options_ui": {
+    "page": "options/options.html",
+    "open_in_tab": true
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

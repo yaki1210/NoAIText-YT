@@ -1,0 +1,38 @@
+# 更新日志
+
+本文件记录 NoAIText-YT 的所有显著变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
+
+## [0.1.0] - 2026-07-30
+
+首个开源版本，源自 NoAIText(B站版) 的 YouTube 独立衍生。
+
+### 新增
+- 提取 YouTube `/watch` 视频字幕（中/英），扫描 AI 常用句式与文本结构特征，给出 0–100 的"文案由 AI 生成"概率得分
+- **双语规则库**：按字幕轨 `languageCode` 严格单语跑，中文沿用 B 站版规则集，英文规则集基于社区 AI-slop 抱怨调研整理
+- 7 类规则（中英各一套）：成对句式、连接/总结语、翻译腔/学术腔、大词/营销腔、开头结尾套路、结构统计、反向·人类口语（负权重扣分）
+- 选轨：按"音频原始语言优先"原则（手动轨 > ASR > 任意手动轨 > 第一条）
+- 字幕轨下拉标注 ASR；自动翻译开关（默认关，开启时为英文视频附 `&tlang=zh-Hans` 取机翻中字幕轨参与检测，标灰「仅供参考」）
+- 按每千字（中）/ 每千词（英）密度计分，长视频不会因命中绝对数多而虚高
+- 徽标配色：绿（0–29 大概率真人）/ 黄（30–59 疑似 AI 辅助）/ 红（60–100 大概率 AI 文案）
+- 悬浮面板（Shadow DOM）：总分、判定档、字幕字数/密度（中「字」/ 英「词」）、字幕轨切换、自动翻译开关、命中规则明细（可点击示例跳转视频时间）
+- 规则设置页：逐条开关、调权重、改命中上限、新增自定义规则（按语言选择）、按语言过滤规则列表、调中英两套短文本下限、调灵敏度、导入/导出 JSON
+- 字幕轨/字幕内容/检测结果三级缓存，规则变更自动刷新
+- 单元测试：检测引擎 14 个用例（中文 + 英文 AI/人类样本、lang 过滤、大小写不敏感、cap、回退判定）
+
+### 字幕管线（重写自 B 站版）
+- 不依赖受限的 YouTube Data API v3
+- 抓取 watch 页 HTML → 括号平衡 + 字符串跳过方式抠内嵌 `ytInitialPlayerResponse`（避免正则非贪婪误截嵌套大括号）
+- 取 `playerCaptionsTracklistRenderer.captionTracks[]` → `baseUrl` 追加 `&fmt=json3` → `events[]` 标准化为 `{content, from, to}`（毫秒转秒）
+
+### 检测引擎改造
+- `analyze(segments, rules, settings)` 加 `settings.lang` 入参；缺省时按 CJK 占比回退判定
+- 规则按 `rule.lang` 过滤（缺省 / `'both'` 不过滤）
+- `structureFns` 按语言分支：英文优先选用 `${pattern}_en` 实现（ASR 无标点切分放宽，`however/nevertheless` 转折密度统计），无则回退到中文实现
+- 英文 regex 规则自动用 `gi` flag（ASR 常无大写）
+- 密度分母按语言主量纲：中文按字符数，英文按词数
+
+### 反馈已知限制
+- 仅 `/watch` 页面，Shorts / embed 暂不支持
+- 英文 ASR 无标点、错字多，结构统计噪声较大（已放宽阈值并降权 `en_struct_uniform`）
+- 自动翻译准确性差，仅作辅助参考，结果会标灰
+- 中英以外语言未配规则集，由 detector 按 CJK 占比回退判为 zh/en 再跑（命中会少但不会报错）

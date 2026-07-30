@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>NoAIText-YT · 规则设置</title>
+  <link rel="stylesheet" href="options.css" />
+</head>
+<body>
+  <header>
+    <h1>NoAIText-YT · 规则设置</h1>
+    <div class="actions">
+      <button id="btn-export">导出 JSON</button>
+      <button id="btn-import">导入 JSON</button>
+      <input type="file" id="file-import" accept="application/json" hidden />
+      <button id="btn-reset" class="danger">恢复默认</button>
+      <span id="saved-tag" class="saved-tag"></span>
+    </div>
+  </header>
+
+  <section class="card">
+    <h2>判定参数</h2>
+    <div class="row">
+      <label>灵敏度 k <small>越小越敏感</small>
+        <input type="range" id="sensitivity" min="2" max="20" step="0.5" />
+        <span id="sensitivity-val"></span>
+      </label>
+      <label>低概率阈值 <input type="number" id="thr-low" min="0" max="100"></label>
+      <label>高概率阈值 <input type="number" id="thr-mid" min="0" max="100"></label>
+      <label>中文短文本下限(字) <input type="number" id="short-limit" min="0" max="2000"></label>
+      <label>英文短文本下限(词) <input type="number" id="short-limit-en" min="0" max="2000"></label>
+      <label><input type="checkbox" id="auto-translate"> 允许自动翻译为中文（默认关，准确性差）</label>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>新增自定义规则</h2>
+    <div class="row addrow">
+      <input id="add-name" placeholder="规则名称（如：delve into…）" />
+      <select id="add-lang">
+        <option value="zh">中文</option>
+        <option value="en">English</option>
+      </select>
+      <select id="add-cat">
+        <option value="pair">句式</option>
+        <option value="connect">连接词</option>
+        <option value="academic">翻译腔</option>
+        <option value="buzzword">大词</option>
+        <option value="outro">套话</option>
+        <option value="human">口语(负)</option>
+      </select>
+      <select id="add-kind">
+        <option value="keyword">关键词</option>
+        <option value="regex">正则</option>
+      </select>
+      <input id="add-pattern" placeholder="匹配模式（关键词或正则）" />
+      <input id="add-weight" type="number" value="3" placeholder="权重" title="权重" />
+      <input id="add-cap" type="number" value="3" placeholder="上限" title="命中上限" />
+      <button id="btn-add">添加</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="toolbar">
+      <input id="filter" placeholder="按名称/分类过滤…" />
+      <label><select id="filter-lang">
+        <option value="">全部语言</option>
+        <option value="zh">中文</option>
+        <option value="en">English</option>
+      </select></label>
+      <label><input type="checkbox" id="only-enabled" /> 仅显示启用</label>
+    </div>
+    <div id="rules-list"></div>
+  </section>
+
+  <script type="module" src="options.js"></script>
+</body>
+</html>

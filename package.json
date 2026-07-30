@@ -1,0 +1,11 @@
+{
+  "name": "noaitext-yt",
+  "version": "0.1.0",
+  "description": "YouTube视频 AI 文案检测浏览器插件（中英双语字幕）",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "check": "node --check src/background.js src/api/youtube.js src/core/detector.js src/core/rules.js src/core/rules-zh.js src/core/rules-en.js src/core/storage.js src/content/content.js src/content/panel.js && node --check options/options.js"
+  }
+}
