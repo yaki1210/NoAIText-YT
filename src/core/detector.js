@@ -1,6 +1,8 @@
 // 纯函数评分引擎。不依赖浏览器 API，可被 background 与 node 测试同时引用。
 // 用法：import { analyze } from './detector.js';
 //       const result = analyze(segments, rules, settings);  // settings.lang 可选，缺省按 CJK 占比回退
+// lang=zh 时先把文本做繁体→简体 1:1 归一（仅用于规则匹配），
+// 简繁共用同一套简体规则库；示例展示仍用原文，1:1 映射保证字符偏移对齐。
 
 const roamSplitZh = /[。！？!?\n]+/;
 const roamSplitEn = /[.!?!\n]+/;
@@ -30,9 +32,50 @@ function buildIndex(segments) {
 
 function detectLang(segments) {
   const { text } = buildIndex(segments);
-  const cjk = (text.match(/[\u4e00-\u9fff]/g) || []).length;
+  // 含 CJK 扩展 A 区与兼容区，繁体生僻字也能计入中文
+  const cjk = (text.match(/[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/g) || []).length;
   const latin = (text.match(/[A-Za-z]/g) || []).length;
   return cjk >= latin ? "zh" : "en";
+}
+
+// ── 繁体→简体 1:1 归一 ──────────────────────────────────
+// 每 2 个字符为 1 组（繁体,简体）。歧义字只取字幕中最常用义：
+// 著→着（随着）、後→后（最后）、發/髮→发（发展/头发）、餘→余（剩余）等。
+// 收录覆盖默认中文规则库所需字符，另补高频常用字以惠及自定义规则。
+const T2S_PAIRS =
+  "個个們们說说還还這这裡里裏里後后長长門门為为時时來来見见讓让對对實实從从會会應应該该關关變变單单" +
+  "論论總总結结無无問问顯显眾众換换話话與与當当隨随進进斷断義义鍵键遠远響响揮挥賦赋閉闭環环層层" +
+  "輯辑維维顛颠雙双劍剑異异謝谢觀观聽听幫帮錯错誤误確确準准給给沒没試试簡简別别顧顾難难現现" +
+  "發发認认輕輕举举種种麼么麽么著着唄呗囉啰嗚呜嗎吗喲哟誒诶綜综學学習习術术語语業业題题類类師师愛爱" +
+  "爾尔萬万億亿數数歲岁頭头馬马鳥鸟魚鱼車车電电動动東东樂乐產产標标記记訓训議议設设訪访講讲許许" +
+  "評评詞词讀读課课誰谁請请調调談谈貝贝資资貴贵買买賣卖賠赔費费貨货質质財财貧贫貢贡責责賬账貫贯" +
+  "寫写軍军農农紅红級级紙纸經经紀纪線线組组細细終终紹绍絕绝統统網网緒绪緊紧繞绕編编缓缓縮缩續续" +
+  "羅罗罰罚罷罢風风飛飞餘余鬥斗鬧闹聞闻開开間间閣阁閱阅隊队陽阳陰阴陳陈陸陆際际隱隐雲云霧雾頁页" +
+  "頂顶項项順顺須须領领額额飯饭飲饮飾饰館馆駕驾騎骑髮发鬆松適适達达熱热覺觉嚴严華华衛卫醫医歷历" +
+  "曆历廠厂廳厅壓压厭厌縣县場场壇坛團团圖图圓圆聖圣聲声處处備备態态戰战執执擴扩揚扬護护報报擁拥" +
+  "撲扑揀拣擔担擬拟撥拨擇择攔拦擰拧擋挡擠挤損损據据撈捞撿捡摻掺攬揽擱搁摟搂攪搅攜携攝摄搖摇撐撑" +
+  "擊击搶抢拋抛臺台係系繫系復复複复幾几僅仅邏逻視视審审兒儿雜杂況况剛刚邊边過过點点強强龍龙鳳凤" +
+  "雞鸡鴨鸭鵝鹅豬猪貓猫獅狮蝦虾體体塊块牆墙壞坏壽寿夢梦獎奖將将導导尋寻彎弯張张彈弹彌弥彙汇匯汇" +
+  "徹彻徑径徵征憶忆懷怀懶懒懼惧戀恋戶户採采捨舍掃扫掛挂攏拢攣挛擾扰擺摆攤摊敘叙敗败啟启斬斩晝昼";
+
+let t2sMap = null;
+function toSimplified(text) {
+  if (!t2sMap) {
+    t2sMap = {};
+    for (let i = 0; i < T2S_PAIRS.length; i += 2) t2sMap[T2S_PAIRS[i]] = T2S_PAIRS[i + 1];
+  }
+  let out = null;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    const r = t2sMap[c];
+    if (r) {
+      if (!out) out = text.slice(0, i);
+      out += r;
+    } else if (out) {
+      out += c;
+    }
+  }
+  return out || text;
 }
 
 function findSeg(offs, index) {
@@ -123,7 +166,7 @@ const structureFns = {
     return { hits: Math.min(runs, 4), detail: runs ? `${runs}次` : null };
   },
   yuqici(text) {
-    const runs = (text.match(/啊|呢|吧|嘛|哦|哈|呗|喲|呀/g) || []).length;
+    const runs = (text.match(/啊|呢|吧|嘛|哦|哈|呗|哟|呀/g) || []).length;
     const c = chars(text);
     const perK = c ? (runs / c) * 1000 : 0;
     const hits = perK < 2 ? 0 : perK < 5 ? 1 : perK < 8 ? 2 : perK < 12 ? 3 : Math.min(5, Math.round(perK / 3));
@@ -183,6 +226,32 @@ const structureFns = {
     const perK = w ? (runs / w) * 1000 : 0;
     const hits = perK < 2 ? 0 : perK < 4 ? 1 : perK < 6 ? 2 : Math.min(4, Math.round(perK / 2));
     return { hits, detail: hits ? `≈${perK.toFixed(1)}/千词` : null };
+  },
+  // 书面文本风格：大写 + 句读（手动字幕 / AI 文案均有，ASR 两者都≈0）
+  written_style_en(text) {
+    const w = words(text);
+    if (w < 25) return { hits: 0, detail: null };
+    const capPerK = ((text.match(/[A-Z]/g) || []).length / w) * 1000;
+    const punctPerK = ((text.match(/[.!?]/g) || []).length / w) * 1000;
+    if (capPerK < 3 && punctPerK < 4) return { hits: 0, detail: null };
+    let hits = 1;
+    if (punctPerK >= 6) hits++;
+    if (capPerK >= 60) hits++;
+    return { hits, detail: `大写${capPerK.toFixed(0)}/千词 句读${punctPerK.toFixed(0)}/千词` };
+  },
+  // 分号密度：ASR 从不产出，书面 AI 文案高频
+  semicolon_en(text) {
+    const w = words(text);
+    const perK = w ? ((text.match(/;/g) || []).length / w) * 1000 : 0;
+    const hits = perK < 1 ? 0 : perK < 3 ? 1 : perK < 6 ? 2 : 3;
+    return { hits, detail: `≈${perK.toFixed(1)}/千词` };
+  },
+  // 括号密度：ASR 从不产出，书面 AI 文案常用补充说明
+  paren_en(text) {
+    const w = words(text);
+    const perK = w ? ((text.match(/\([^)\n]{1,60}\)/g) || []).length / w) * 1000 : 0;
+    const hits = perK < 1 ? 0 : perK < 3 ? 1 : perK < 6 ? 2 : 3;
+    return { hits, detail: `≈${perK.toFixed(1)}/千词` };
   }
 };
 
@@ -195,7 +264,7 @@ function buildExamples(limit, indices, offs, text) {
     const seg = findSeg(offs, it.index);
     if (seg && seen.has(seg.start)) continue;
     if (seg) seen.add(seg.start);
-    let snippet = it.match || text.substr(it.index, 12);
+    let snippet = it.match ? text.substr(it.index, it.match.length) : text.substr(it.index, 12);
     if (Array.from(snippet).length > 40) snippet = Array.from(snippet).slice(0, 40).join("") + "…";
     exs.push({
       text: snippet,
@@ -216,6 +285,8 @@ function sec2fmt(sec) {
 export function analyze(segments, rules = [], settings = {}) {
   const { text, offs } = buildIndex(segments);
   const lang = settings.lang || detectLang(segments);
+  // 繁简归一（1:1）仅作用于规则匹配文本；原文 text 仍用于示例展示与字数统计
+  const matchText = lang === "zh" ? toSimplified(text) : text;
   const k = settings.sensitivity ?? 8;
   const shortLimit = lang === "en"
     ? (settings.shortTextLimitEn ?? 150)
@@ -238,15 +309,15 @@ export function analyze(segments, rules = [], settings = {}) {
     let mr;
     if (rule.kind === "regex") {
       const flags = (rule.lang === "en") ? "gi" : "g";
-      mr = matchRegex(rule.pattern, text, flags);
-    } else if (rule.kind === "keyword") mr = matchSubstring(text, rule.pattern);
-    else if (rule.kind === "all") mr = matchAll(text, rule.pattern);
+      mr = matchRegex(rule.pattern, matchText, flags);
+    } else if (rule.kind === "keyword") mr = matchSubstring(matchText, rule.pattern);
+    else if (rule.kind === "all") mr = matchAll(matchText, rule.pattern);
     else if (rule.kind === "structure") {
       // 英文优先 _en 实现，无则回退到默认（中文）实现
       const fnKey = (lang === "en" && structureFns[rule.pattern + "_en"]) ? rule.pattern + "_en" : rule.pattern;
       const fn = structureFns[fnKey];
       if (!fn) continue;
-      mr = fn(text);
+      mr = fn(matchText);
     } else continue;
 
     if (!mr.hits) continue;

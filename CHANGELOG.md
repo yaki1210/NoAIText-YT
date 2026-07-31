@@ -2,6 +2,26 @@
 
 本文件记录 NoAIText-YT 的所有显著变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.2.0] - 2026-07-31
+
+### 新增
+- **繁体中文支持**：`lang=zh` 时对字幕文本做繁体→简体 1:1 归一（仅用于规则匹配，示例展示仍为原文），简繁共用同一套简体规则库，繁体字幕不再「零命中」
+- **英文书面风格结构信号**：大写+句读密度（手动字幕/AI 文案 vs ASR）、分号密度、括号密度
+- **英文规则库大幅扩充**：
+  - 成对句式：on the one hand…on the other、the more…the more、no matter how/what、whether or not、that being said、in other words 等
+  - 连接/总结语：it's important to note、it should be noted、ultimately、notably、consequently、in essence、to sum up、picture this 等
+  - 脚本式连读短语（口语化 AI 文案高频）：the key thing is、it comes down to、you will find、what this means is、it's safe to say 等
+  - 学术腔/大词：embark、harness、pivotal、landscape、realm、comprehensive、cutting-edge、unprecedented、transformative 等
+- plays a role 规则收紧：仅匹配带强调形容词的写法（crucial/vital/key/essential 等）
+
+### 改进
+- 反向·人类口语规则只保留**真人独有**的失语/缩略特征（uh/um/gonna/wanna/gotta/kinda/ain't/yeah 等）；移除 actually/basically/honestly/literally/just/really 等陷阱词——口语化 AI 文案同样高频，作负信号会误伤
+- 句长均匀结构规则降权（中 5→3 / 英 4→3），降低 ASR 断句均匀造成的假阳性
+- 英文「today we're going to」套话规则放宽允许列表（look at/cover）
+
+### 测试
+- 用例 14 → 28：新增繁体 AI/人类两组样本、繁体与简体评分一致性断言、繁体语言回退判定、英文口语缩略词反向扣分断言、英文书面风格结构信号断言
+
 ## [0.1.0] - 2026-07-30
 
 首个开源版本，源自 NoAIText(B站版) 的 YouTube 独立衍生。

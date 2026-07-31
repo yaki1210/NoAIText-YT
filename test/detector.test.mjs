@@ -55,6 +55,32 @@ const humanEn = [
   { content: "thanks for watching guys ill catch you in the next one so yeah peace", from: 75, to: 81 }
 ];
 
+// ─── 繁体中文样本（与简体 aiZh/humanZh 逐句对应，验证繁简归一）─────
+const aiZht = [
+  { content: "今天我們來聊聊一個話題。", from: 0, to: 2 },
+  { content: "隨著科技的發展，這個領域正經歷著前所未有的變革。", from: 2, to: 6 },
+  { content: "這不僅是一個工具，更是一種全新的思維方式。", from: 6, to: 10 },
+  { content: "它不是簡單的效率提升，而是底層邏輯的徹底重塑。", from: 10, to: 15 },
+  { content: "在當今這個時代，賦能成為了關鍵詞。", from: 15, to: 18 },
+  { content: "綜上所述，我們需要從多維度的視角去審視。", from: 18, to: 22 },
+  { content: "首先，它提升了效率；其次，它降低了成本；最後，它塑造了全新的閉環。", from: 22, to: 28 },
+  { content: "值得注意的是，這一技術具有深遠的影響。", from: 28, to: 31 },
+  { content: "換句話說，這正是未來發展的方向。", from: 31, to: 34 },
+  { content: "總而言之，希望對你有所幫助，我們下期再見。", from: 34, to: 38 }
+];
+const humanZht = [
+  { content: "嗯，那個，我跟你說啊，", from: 0, to: 2 },
+  { content: "就是這個事兒吧，其實我一開始也沒太搞明白。", from: 2, to: 6 },
+  { content: "後來我就去試了一下，誒，還別說，真有點意思。", from: 6, to: 10 },
+  { content: "說白了就是沒那麼複雜，對吧。", from: 10, to: 13 },
+  { content: "怎麼說呢，反正就是你怎麼舒服怎麼來。", from: 13, to: 17 },
+  { content: "那個那個，對，然後我當時就想，不對不對，我說錯了，應該是另外一個意思。", from: 17, to: 23 },
+  { content: "嗨，就這麼個情況嘛。", from: 23, to: 25 },
+  { content: "我就隨便聊聊，大家聽聽就行了哈。", from: 25, to: 28 },
+  { content: "我口誤一下子，剛才那個數字好像是三十七不是三十八。", from: 28, to: 32 },
+  { content: "嗯就這些吧，回頭再說唄。", from: 32, to: 34 }
+];
+
 // ─── 中文断言（保持与 B站版一致）───────────────────
 test("中文：AI 文案得分显著高于人类口语", () => {
   const ai = analyze(aiZh, DEFAULT_RULES, { ...DEFAULT_SETTINGS, lang: "zh" });
@@ -77,6 +103,31 @@ test("中文：反向规则应命中人类口语样本", () => {
   const humanRules = hu.rules.filter(r => r.category === "human");
   assert.ok(humanRules.length >= 2, "人类口语特征至少应命中两条反向规则");
   assert.ok(humanRules.every(r => r.contrib < 0), "反向规则贡献应为负");
+});
+
+test("中文：繁体样本按同一规则库判定（归一化生效）", () => {
+  const ai = analyze(aiZht, DEFAULT_RULES, { ...DEFAULT_SETTINGS, lang: "zh" });
+  const hu = analyze(humanZht, DEFAULT_RULES, { ...DEFAULT_SETTINGS, lang: "zh" });
+  assert.ok(ai.score > hu.score, `繁体 AI=${ai.score} 应 > 人类=${hu.score}`);
+  assert.ok(ai.score >= 60, `繁体 AI 样本应判为高概率(>=60)，实际 ${ai.score}`);
+  assert.ok(hu.score < 40, `繁体人类样本应判为低概率(<40)，实际 ${hu.score}`);
+  const names = ai.rules.map(r => r.name);
+  assert.ok(names.includes("综上所述"), "繁体「綜上所述」应命中简体规则");
+  assert.ok(names.some(n => n.includes("不是…而是…")), "繁体「不是…而是…」应命中");
+  assert.ok(names.some(n => n.includes("首先…其次")), "繁体「首先…其次」应命中");
+});
+
+test("中文：繁体样本评分与简体版一致（1:1 归一）", () => {
+  const s = analyze(aiZh, DEFAULT_RULES, { ...DEFAULT_SETTINGS, lang: "zh" });
+  const t = analyze(aiZht, DEFAULT_RULES, { ...DEFAULT_SETTINGS, lang: "zh" });
+  assert.equal(t.density, s.density, `密度应一致 简体=${s.density} 繁体=${t.density}`);
+  assert.equal(t.positiveContribution, s.positiveContribution, "正向贡献应一致");
+  assert.ok(Math.abs(t.score - s.score) <= 2, `得分应接近 简体=${s.score} 繁体=${t.score}`);
+});
+
+test("中文：繁体样本语言回退判定为 zh", () => {
+  const r = analyze(aiZht, DEFAULT_RULES, DEFAULT_SETTINGS);
+  assert.equal(r.lang, "zh");
 });
 
 // ─── 英文断言 ────────────────────────────────────
@@ -103,6 +154,22 @@ test("英文：反向规则应命中人类 ASR 样本", () => {
   const humanRules = hu.rules.filter(r => r.category === "human");
   assert.ok(humanRules.length >= 3, `EN 人类 ASR 至少应命中三条反向规则，实际 ${humanRules.length}`);
   assert.ok(humanRules.every(r => r.contrib < 0), "反向规则贡献应为负");
+});
+
+test("英文：口语缩略词/填充词被反向规则显著压分", () => {
+  const hu = analyze(humanEn, DEFAULT_RULES, { ...DEFAULT_SETTINGS, lang: "en" });
+  const totalNeg = hu.rules.filter(r => r.category === "human").reduce((a, b) => a + b.contrib, 0);
+  assert.ok(totalNeg <= -40, `人类 ASR 反向扣分应 ≥40，实际 ${totalNeg}`);
+});
+
+test("英文：书面风格文本（大写+句读）命中结构信号", () => {
+  const segs = [
+    { content: "Moreover, this approach is not just a trend. It has real benefits. Each sentence ends properly. Capital letters mark the start. This is clearly written text.", from: 0, to: 8 },
+    { content: "However, semicolons are rare here; they do appear sometimes. The point stands overall.", from: 8, to: 12 }
+  ];
+  const r = analyze(segs, DEFAULT_RULES, { ...DEFAULT_SETTINGS, lang: "en" });
+  assert.ok(r.rules.some(x => x.id === "en_struct_written"), "应命中书面风格结构信号");
+  assert.ok(r.rules.some(x => x.id === "en_struct_semicolon"), "应命中分号密度信号");
 });
 
 test("英文：regex 大小写不敏感（ASR 缺大写不应漏检）", () => {

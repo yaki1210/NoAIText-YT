@@ -85,7 +85,7 @@ export const ZH_RULES = [
   // ── F 结构统计特征（detector 按 lang 选 _zh / _en 实现）──
   { id: "struct_dash", name: "破折号密度偏高", category: "structure", kind: "structure", lang: "zh", pattern: "dash_density", weight: 4, cap: 4, enabled: true },
   { id: "struct_parallel3", name: "三连排比偏多", category: "structure", kind: "structure", lang: "zh", pattern: "parallel3", weight: 5, cap: 4, enabled: true },
-  { id: "struct_uniform", name: "句长过于均匀", category: "structure", kind: "structure", lang: "zh", pattern: "sentence_uniform", weight: 5, cap: 3, enabled: true },
+  { id: "struct_uniform", name: "句长过于均匀", category: "structure", kind: "structure", lang: "zh", pattern: "sentence_uniform", weight: 3, cap: 3, enabled: true },
   { id: "struct_erzh", name: "“，而”转折偏多", category: "structure", kind: "structure", lang: "zh", pattern: "er_transition", weight: 3, cap: 4, enabled: true },
 
   // ── G 反向规则·人类口语（负权重）─────────────────────

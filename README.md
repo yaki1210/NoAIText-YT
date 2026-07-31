@@ -1,24 +1,24 @@
 # NoAIText-YT · YouTube 视频 AI 文案检测插件
 
-![版本](https://img.shields.io/badge/版本-0.1.0-22c55e)
+![版本](https://img.shields.io/badge/版本-0.2.0-22c55e)
 ![License](https://img.shields.io/badge/License-MIT-blue)
 ![平台](https://img.shields.io/badge/平台-Chrome%20%7C%20Edge-orange)
 ![Manifest](https://img.shields.io/badge/Manifest-V3-purple)
-![语言](https://img.shields.io/badge/字幕-中%20%2F%20EN-brightgreen)
+![语言](https://img.shields.io/badge/字幕-简中%20%2F%20繁中%20%2F%20EN-brightgreen)
 
-提取 YouTube 视频字幕（中/英），扫描其中 AI 常用句式与文本结构特征，加权计算后给出 **0–100 的"文案由 AI 生成"概率得分**，并在命中示例点击后跳转到视频对应时间。无字幕的视频不显示面板。
+提取 YouTube 视频字幕（简中/繁中/英），扫描其中 AI 常用句式与文本结构特征，加权计算后给出 **0–100 的"文案由 AI 生成"概率得分**，并在命中示例点击后跳转到视频对应时间。无字幕的视频不显示面板。
 
-**双语支持**：按字幕轨 `languageCode` 分别走中文/英文两套规则库。中文沿用同系列 B 站版规则集；英文规则集基于社区 AI-slop 抱怨调研（Reddit r/ChatGPT、HN、GPTZero/Originality.ai 博客、El País 学术用词研究）整理，仅靠借浏览器登录会话读取用户可见内容，全程**本地计算**，无任何数据上传。
+**双语支持**：按字幕轨 `languageCode` 分别走中文/英文两套规则库。中文繁体字幕先做繁体→简体归一（1:1 字符映射）再匹配简体规则库，示例仍展示原文。英文规则集基于社区 AI-slop 抱怨调研（Reddit r/ChatGPT、HN、GPTZero/Originality.ai 博客、El País 学术用词研究）整理，仅靠借浏览器登录会话读取用户可见内容，全程**本地计算**，无任何数据上传。
 
 仅支持 Chrome / Edge（Manifest V3）。
 
 ## 特性
 
 - 视频页右下角徽标就地显示得分，点击展开命中明细
-- **中英双语**：按轨 `languageCode` 严格单语跑；切换字幕轨即重算
+- **中英双语（简/繁）**：按轨 `languageCode` 严格单语跑；中文繁体字幕自动归一为简体匹配，切换字幕轨即重算
 - 字幕轨下拉标注 ASR / 手动轨；为英文视频提供**自动翻译开关**（默认关、面板可选，机翻结果仅供参考）
 - 7 类规则（中英各一套）：成对句式、连接/总结语、翻译腔/学术腔、大词/营销腔、开头结尾套路、结构统计、反向·人类口语
-- 反向规则用真实口语特征（中文：语气词/口头禅/自我纠正；英文：uh/um/you know/I mean/I mean 等）扣分，双向判别
+- 反向规则用真实口语特征扣分（中文：语气词/口头禅/自我纠正；英文：uh/um/gonna/wanna/kinda/yeah 等失语与缩略词），双向判别
 - 按每千字 / 每千词密度计分，长视频不会因命中绝对数多而虚高
 - 命中示例可点击跳转到视频对应时间
 - 规则可逐条开关、调权重、改上限，支持自定义规则与导入/导出 JSON
@@ -62,7 +62,8 @@ content.js(URL 解析 ?v= / yt-navigate-finish SPA 监听)
 ```
 
 - 选轨策略：**按音频原始语言优先**——手动轨（音频语言）> ASR（音频语言）> 任意手动轨 > 第一条
-- 语言归一：`zh-*` → `zh`，`en-*` → `en`；其它语言由 detector 按 CJK 占比回退判定
+- 语言归一：`zh-*`（含 zh-TW/zh-Hant）→ `zh`，`en-*` → `en`；其它语言由 detector 按 CJK 占比回退判定
+- 中文繁简归一：`lang=zh` 时按 1:1 字符表把繁体映射为简体后匹配规则（仅匹配用，示例/字数统计仍用原文）；新增繁体生僻字需补充 detector.js 的 `T2S_PAIRS` 映射表
 - 自动翻译：`settings.autoTranslate=true` 时，对英文视频可附 `&tlang=zh-Hans` 取 AI 机翻中字幕轨参与检测，结果标灰「仅供参考」
 - 全程**本地计算**，无任何数据上传
 
@@ -77,21 +78,21 @@ content.js(URL 解析 ?v= / yt-navigate-finish SPA 监听)
 | 翻译腔/学术腔 | 随着…的发展、至关重要、扮演着…角色 | delve、meticulous、navigate the complexities、a testament to | 中(4–12) |
 | 大词/营销腔 | 赋能、闭环、底层逻辑 | synergy、paradigm、holistic、leverage、seamless | 低(3–8) |
 | 开头结尾套路 | 今天我们来聊…、希望对你有所帮助 | without further ado、let's break it down、stick around | 低(1–4) |
-| 结构统计 | 破折号密度、三连排比、句长过于均匀 | dash 密度、英文排比、however/nevertheless 转折偏多 | 中(3–6) |
-| 反向·人类口语 | 语气词、口头禅、自我纠正（**扣分**） | uh、um、you know、I mean、I dunno、so yeah（**扣分**）| 负（-3–-4）|
+| 结构统计 | 破折号密度、三连排比、句长过于均匀 | dash 密度、英文排比、however/nevertheless 转折偏多、书面风格（大写+句读）、分号/括号密度 | 中(3–6) |
+| 反向·人类口语 | 语气词、口头禅、自我纠正（**扣分**） | uh、um、gonna/wanna/gotta、kinda/sorta、yeah、I dunno、so yeah（**扣分**）| 负（-1–-5）|
 
 计分：`单规则贡献 = min(命中数, 上限) × 权重`，正负相加得原始分 → 按字幕量度（中文按千字、英文按千词）折算密度 `d` → `得分 = 100 × (1 − e^(−d/k))`，k 默认 8（设置页可调）。长视频不会因命中绝对数多而虚高。
 
-英文规则对正则类自动启用大小写不敏感匹配（ASR 常无大写）；用 `\b` 词边界防子串误匹配（如 unlike 误命中 like）。下方"陷阱词"未收录，避免误伤真实 YouTuber：`actually / basically / just / really / literally / very / obviously / honestly / in order to / in terms of / due to` 等。
+英文规则对正则类自动启用大小写不敏感匹配（ASR 常无大写）；用 `\b` 词边界防子串误匹配（如 unlike 误命中 like）。下方"陷阱词"正反方向均不收录——真人口语高频，口语化 AI 文案同样高频，作任一方向信号都会误伤：`actually / basically / just / really / literally / honestly / very / obviously / in order to / in terms of / due to` 等。
 
 ## 单元测试
 
 ```bash
-npm test          # node --test，14 个用例
+npm test          # node --test，28 个用例
 npm run check     # 语法检查
 ```
 
-测试覆盖：中英 AI 文案 vs 人类口语样本的分数排序、关键句式命中、反向规则命中、`lang` 严格过滤、英文 regex 大小写不敏感、cap 上限、空文本、示例时间戳、短文本标记、语言回退判定。
+测试覆盖：中英 AI 文案 vs 人类口语样本的分数排序、繁体与简体样本的一致性、关键句式命中、反向规则命中、`lang` 严格过滤、英文 regex 大小写不敏感、cap 上限、空文本、示例时间戳、短文本标记、语言回退判定。
 
 ## 目录结构
 
@@ -105,9 +106,9 @@ NoAIText-YT/
 │  ├─ api/youtube.js           # watch HTML 解析 + captionTracks 取轨 + json3 取内容
 │  ├─ core/
 │  │  ├─ rules.js              # 聚合层 + DEFAULT_SETTINGS
-│  │  ├─ rules-zh.js           # 中文默认规则库（lang: 'zh'）
+│  │  ├─ rules-zh.js           # 中文默认规则库（lang: 'zh'，简体编写，繁体经归一匹配）
 │  │  ├─ rules-en.js           # 英文默认规则库（lang: 'en'）
-│  │  ├─ detector.js           # 纯函数评分引擎（中英通用 + 按 lang 选结构函数）
+│  │  ├─ detector.js           # 纯函数评分引擎（中英通用 + 繁简归一 + 按 lang 选结构函数）
 │  │  └─ storage.js            # 规则/设置持久化（chrome.storage.local，命名空间 noyit:*）
 │  └─ content/
 │     ├─ bootstrap.js          # 经典脚本入口，动态导入 content.js
@@ -137,13 +138,14 @@ NoAIText-YT/
 - 仅 `/watch` 页面，Shorts `/shorts/` 与 `/embed/` 暂不支持
 - 中途加载广告 / 直播页字幕接管可能误判，等底层视频就绪后自动重算
 - YouTube 对 InnerTube `player` 接口近年加大 `pot` 风控；本插件走"读 watch 页内嵌 JSON + 按 baseUrl 拉字幕"路径目前仍可用，若被升级会失效
-- 英文 ASR 字幕常无标点、错字多，会显著干扰 `parallel3`、`sentence_uniform` 等结构特征统计的准确性（已通过 `_en` 分支放宽阈值与切分逻辑，检测时面板会标注「ASR」）
+- 英文 ASR 字幕常无标点、错字多，会显著干扰 `parallel3`、`sentence_uniform` 等结构特征统计的准确性（已通过 `_en` 分支放宽阈值与切分逻辑，另加"书面风格（大写+句读）"等与 ASR 互补的结构信号，检测时面板会标注「ASR」）
 - 中英以外的语言未配置规则集，会由 detector 按 CJK 占比回退判为 zh 或 en 再跑（命中会很少，但不会报错）
+- 繁体归一覆盖常用字（含全部默认规则字符）；生僻异体字（如 喼/嘅/啲）未收录，不影响简体检测
 
 ## 开发
 
 ```bash
-npm test          # 单元测试（node --test，14 个用例）
+npm test          # 单元测试（node --test，28 个用例）
 npm run check     # 语法检查
 ```
 

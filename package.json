@@ -1,6 +1,6 @@
 {
   "name": "noaitext-yt",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "YouTube视频 AI 文案检测浏览器插件（中英双语字幕）",
   "private": true,
   "type": "module",
