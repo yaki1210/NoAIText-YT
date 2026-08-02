@@ -49,7 +49,8 @@ export async function getSettings() {
     shortTextLimit: user.shortTextLimit ?? DEFAULT_SETTINGS.shortTextLimit,
     shortTextLimitEn: user.shortTextLimitEn ?? DEFAULT_SETTINGS.shortTextLimitEn,
     autoTranslate: user.autoTranslate ?? false,
-    thresholds: user.thresholds ?? {}
+    thresholds: user.thresholds ?? {},
+    autoDetect: user.autoDetect ?? DEFAULT_SETTINGS.autoDetect
   };
 }
 

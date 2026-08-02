@@ -13,6 +13,7 @@ let runToken = 0;
 let contextInvalid = false;
 let pollIntervalId = null;
 let bridgeReady = false;
+let cachedAutoDetect = false;  // 自动检测开关缓存
 
 const BRIDGE = "noyitext-yt";
 
@@ -105,7 +106,7 @@ async function ensurePanel() {
   await panel.build();
 }
 
-async function requestAnalyze(forceNow = false, force = false) {
+async function requestAnalyze(forceNow = false, force = false, manual = false) {
   if (!contextAlive()) return;
   const ctx = getCtx();
   if (!ctx) { if (panel) panel.clear().catch(() => {}); panel = null; lastCtxKey = null; return; }
@@ -151,8 +152,14 @@ async function requestAnalyze(forceNow = false, force = false) {
 
     if (!panel || !contextAlive()) return;
     if (res?.status === "ok") panel.setResult(res);
-    else if (res?.status === "no-subtitle") { await panel.clear(); panel = null; }
-    else panel.setError(res?.message || "检测失败");
+    else if (manual) {
+      // 手动模式：显示错误信息
+      if (res?.status === "no-subtitle") { await panel.clear(); panel = null; }
+      else panel.setError(res?.message || "检测失败");
+    } else {
+      // 自动模式：静默，不显示任何内容
+      if (panel) { await panel.clear(); panel = null; }
+    }
   } catch (e) {
     if (myToken !== runToken) return;
     const msg = String(e?.message || e);
@@ -192,10 +199,11 @@ async function tryBridgeFallback(ctx, myToken, reason) {
   }
 }
 
-// 防抖
+// 防抖：仅在自动检测开启时触发
 let debounceTimer = null;
 function scheduleAnalyze() {
   if (!contextAlive()) return;
+  if (!cachedAutoDetect) return;
   clearTimeout(debounceTimer);
   debounceTimer = setTimeout(() => requestAnalyze(true), 450);
 }
@@ -209,16 +217,28 @@ function watchNavigation() {
   }, 800);
 }
 
-function init() {
+async function updateAutoDetectSetting() {
+  try {
+    const settings = await chrome.runtime.sendMessage({ type: "getSettings" });
+    cachedAutoDetect = settings?.autoDetect === true;
+  } catch {
+    cachedAutoDetect = false;
+  }
+}
+
+async function init() {
   if (!contextAlive()) return;
   // 不再 eager 注入 page-bridge：主路径走 baseUrl，仅在兜底时按需注入
   watchNavigation();
-  requestAnalyze(true);
+  await updateAutoDetectSetting();
+  if (cachedAutoDetect) requestAnalyze(true);
 }
 
 try {
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg && msg.type === "refresh") scheduleAnalyze();
+    if (msg && msg.type === "triggerAnalyze") requestAnalyze(true, false, true);
+    if (msg && msg.type === "settingsChanged") updateAutoDetectSetting();
     return false;
   });
 } catch { contextInvalid = true; }

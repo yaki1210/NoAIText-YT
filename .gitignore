@@ -4,3 +4,5 @@ node_modules/
 Thumbs.db
 # 测试报告属于本地调试产物，不入库
 test-report.html
+# Trae IDE 本地计划文件
+.trae/

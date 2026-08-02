@@ -8,7 +8,8 @@ import { EN_RULES } from "./rules-en.js";
 export const DEFAULT_SETTINGS = {
   sensitivity: 8,        // 映射系数 k，越小越敏感
   shortTextLimit: 200,   // 字数 / 词数低于此值标记"仅供参考"（detmask 按语言量纲处理）
-  shortTextLimitEn: 150  // 英文按词数计的短文本下限
+  shortTextLimitEn: 150, // 英文按词数计的短文本下限
+  autoDetect: false      // 默认关闭自动检测
 };
 
 export const DEFAULT_RULES = [...ZH_RULES, ...EN_RULES];

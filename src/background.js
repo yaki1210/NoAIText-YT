@@ -5,7 +5,7 @@
 //   - 解析媒体轨语言归一到 zh/en 传给 detector；其余语言由 detector detectLang 兜底
 import { fetchVideoInfo, fetchSubtitleContent, pickTrack, refreshTracksInnerTube } from "./api/youtube.js";
 import { analyze } from "./core/detector.js";
-import { getMergedRules, getSettings } from "./core/storage.js";
+import { getMergedRules, getSettings, loadSettingsObj } from "./core/storage.js";
 
 const infoCache = new Map();     // videoId -> info
 const subCache = new Map();      // baseUrl(+tlang) -> segments[]
@@ -157,6 +157,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     chrome.runtime.openOptionsPage();
     return false;
   }
+  if (msg && msg.type === "getSettings") {
+    getSettings().then(s => sendResponse(s));
+    return true;
+  }
   return false;
 });
 
@@ -168,6 +172,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
     chrome.tabs.query({ url: ["*://www.youtube.com/watch*", "*://youtube.com/watch*"] }, (tabs) => {
       for (const t of tabs) {
         chrome.tabs.sendMessage(t.id, { type: "refresh" }, () => void chrome.runtime.lastError);
+        chrome.tabs.sendMessage(t.id, { type: "settingsChanged" }, () => void chrome.runtime.lastError);
       }
     });
   }

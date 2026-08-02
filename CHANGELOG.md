@@ -2,6 +2,23 @@
 
 本文件记录 NoAIText-YT 的所有显著变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.3.0] - 2026-08-02
+
+### 新增
+- **扩展工具栏弹窗**：点击浏览器工具栏 NoAIText-YT 图标弹出菜单，含"检测此视频"按钮和"自动检测"开关
+- **自动检测开关**：默认关闭，开启后页面加载时自动检测；关闭时无浮窗、无面板，不干扰浏览
+
+### 改进
+- 默认改为手动检测（关闭自动检测），避免无字幕视频反复报错
+- 自动检测时无字幕视频**静默处理**：不显示面板、不报错
+- 手动检测时无字幕视频仍显示错误提示
+
+### 内部
+- 新增 `src/popup/` 弹窗模块（popup.html / popup.js / popup.css）
+- `DEFAULT_SETTINGS` 新增 `autoDetect: false`；`getSettings()` 返回 `autoDetect` 字段
+- background.js 新增 `getSettings` 消息处理；设置变更时额外发送 `settingsChanged` 通知
+- content.js：`init()` 按 `autoDetect` 设置决定是否自动检测；`scheduleAnalyze()` 检查缓存开关；新增 `triggerAnalyze` 消息监听；`requestAnalyze` 增加 `manual` 参数，自动模式失败时静默
+
 ## [0.2.0] - 2026-07-31
 
 ### 新增
